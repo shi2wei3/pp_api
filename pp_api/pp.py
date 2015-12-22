@@ -18,6 +18,14 @@ def changelog(pp, args):
         print("msg: " + rev['msg'])
         print
 
+def latest_revision(pp, args):
+    j_content = pp.get_release_schedule_changelog(args.shortname)
+    if(len(j_content) < 1):
+        logging.error("No revision was founded")
+        sys.exit(1)
+    else:
+        print j_content[0]['revision']
+
 def diff(pp, args):
     if not args.revision:
         logging.error("diff need -r revision, check it with changelog")
@@ -29,6 +37,7 @@ def diff(pp, args):
 
 cmd_dict = {"schedule": schedule,
             "changelog": changelog,
+            "latest_revision": latest_revision,
             "diff": diff}
 
 def main():
