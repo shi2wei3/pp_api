@@ -6,7 +6,9 @@ import sys
 
 def schedule(pp, args):
     j_content = pp.get_release_schedule_tasks(args.shortname)
-    for item in j_content:
+    j_content_sorted = sorted(j_content, key=lambda k: map(int,
+        k['hierarchy'].split('.')))
+    for item in j_content_sorted:
         print("%s ~ %s%s%s" % (item['date_start'], item['date_finish'],
               ' ' * (len(item['hierarchy'].split('.'))*2), item['name']))
 
