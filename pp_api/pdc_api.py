@@ -1,4 +1,4 @@
-from rest import RestAPI
+from .rest import RestAPI
 import logging
 
 
@@ -40,10 +40,10 @@ def main():
     pdc = PDCapi()
     import json
     j_content = pdc.get_releases("rhel", "rhel-6", "true")
-    print json.dumps(j_content, indent=4)
+    print(json.dumps(j_content, indent=4))
     j_content = pdc.get_compose_image_rtt_tests("RHEL-7.4-20170711.0",
                                                 "Server", "x86_64")
-    print json.dumps(j_content, indent=4)
+    print(json.dumps(j_content, indent=4))
 
 if __name__ == "__main__":
     main()

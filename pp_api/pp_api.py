@@ -1,4 +1,4 @@
-from rest import RestAPI
+from .rest import RestAPI
 import sys
 import logging
 
@@ -65,8 +65,8 @@ def main():
     logging.basicConfig(level=logging.DEBUG,
                         format='%(asctime)s %(levelname)s %(message)s')
     pp = PPapi()
-    print pp.get_release_schedule_tasks("rhel-6-8")
-    print pp.get_release_schedule_changelog("rhel-6-8")
+    print(pp.get_release_schedule_tasks("rhel-6-8"))
+    print(pp.get_release_schedule_changelog("rhel-6-8"))
 
     diff = pp.get_release_schedule_diff("rhel-6-8", "1.5")
     f = open("diff.html", 'w')

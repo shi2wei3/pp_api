@@ -1,4 +1,4 @@
-from pp_api import PPapi
+from .pp_api import PPapi
 import argparse
 import logging
 import sys
@@ -7,8 +7,7 @@ import sys
 def schedule(pp, args):
     j_content = pp.get_release_schedule_tasks(args.shortname)
     j_content_sorted = sorted(j_content,
-                              key=lambda k: map(int,
-                                                k['hierarchy'].split('.')))
+                              key=lambda k: list(map(int, k['hierarchy'].split('.'))))
     for item in j_content_sorted:
         print("%s ~ %s%s%s" % (item['date_start'], item['date_finish'],
               ' ' * (len(item['hierarchy'].split('.'))*2), item['name']))
@@ -20,7 +19,7 @@ def changelog(pp, args):
         print("revision: %s\tuser: %s\tdate: %s"
               % (rev['revision'], rev['user'], rev['date']))
         print("msg: " + rev['msg'])
-        print
+        print()
 
 
 def latest_revision(pp, args):
@@ -29,7 +28,7 @@ def latest_revision(pp, args):
         logging.error("No revision was founded")
         sys.exit(1)
     else:
-        print j_content[0]['revision']
+        print(j_content[0]['revision'])
 
 
 def diff(pp, args):
