@@ -11,7 +11,7 @@ class PDCapi(RestAPI):
         """ Get releases for the given product and version"""
         logging.info("Get %s releases for rhel" %
                      "active" if active == "true" else "inactive")
-        url = self.base_url + "releases/?short=%s&active=%s" % (short, active)
+        url = self.base_url + "releases/?short=%s&active=%s&page_size=100" % (short, active)
         j_content = self.get(url)
         if self.r.status_code != 200:
             logging.error("GET releases error with code %s, text %s"
