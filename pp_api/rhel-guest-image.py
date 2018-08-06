@@ -1,4 +1,5 @@
 import requests
+
 # Disable HTTPS verification warnings.
 try:
     from requests.packages import urllib3
@@ -6,18 +7,23 @@ except ImportError:
     pass
 else:
     urllib3.disable_warnings()
+import os
 import re
 import sys
 import smtplib
 import logging
 import argparse
 import mysql.connector as mariadb
+import openstack
 from bs4 import BeautifulSoup
 from email.mime.text import MIMEText
-from .pdc_api import PDCapi
+from pp_api import PPapi
+
+jenkins_job_trigger = "java -jar ~/Downloads/jenkins-cli.jar -noCertificateCheck -s " \
+                      "https://xen-jenkins.rhev-ci-vms.eng.rdu2.redhat.com/ build rhel-guest-image-runtest -p 'NVR=%s'"
 
 
-class HTTP_helper(object):
+class HTTPHelper(object):
     def __init__(self):
         self.s = requests.Session()
         headers = {"Accept": "text/html"}
@@ -38,52 +44,58 @@ class HTTP_helper(object):
     def get_latest_released_image(self, x):
         release_url = "http://download-node-02.eng.bos.redhat.com/rel-eng/"
 
-        phase = {"Alpha": 1,
-                 "Beta": 2,
-                 "Snapshot": 3,
-                 "RC": 4}
+        phase = {"DevelPhaseExit": 1,
+                 "Alpha": 2,
+                 "Beta": 3,
+                 "Snapshot": 4,
+                 "RC": 5}
 
         html_text = self.__get(release_url)
         m = re.findall(r"\s*(RHEL-" + str(x) +
-                       "\.\d+-(?:Alpha|Beta|RC|Snapshot)-\d+\.\d+).*",
+                       "\.\d+-(?:DevelPhaseExit|Alpha|Beta|RC|Snapshot)-\d+\.\d+).*",
                        html_text)
         L = sorted(m, key=lambda k: (k.split('-')[1].split('.')[0],
                                      k.split('-')[1].split('.')[1],
                                      phase[k.split('-')[2]],
                                      k.split('-')[3].split('.')[0],
                                      k.split('-')[3].split('.')[1]))
-        print(L[-1])
+        print L[-1]
         html_text = self.__get(release_url + L[-1] +
                                "/compose/Server/x86_64/images/")
         m = re.findall(r"\s*(rhel-guest-image-.*.x86_64.qcow2)\s+.*",
                        html_text)
-        print(m[0].encode('ascii', 'ignore'))
+        print m[0].encode('ascii', 'ignore')
 
     def get_released_image(self, y_stream):
         release_url = "http://download-node-02.eng.bos.redhat.com/rel-eng/"
 
-        phase = {"Alpha": 1,
-                 "Beta": 2,
-                 "Snapshot": 3,
-                 "RC": 4}
+        phase = {"DevelPhaseExit": 1,
+                 "Alpha": 2,
+                 "Beta": 3,
+                 "Snapshot": 4,
+                 "RC": 5}
 
         html_text = self.__get(release_url)
         m = re.findall(r"\s*(RHEL-" + y_stream +
-                       "-(?:Alpha|Beta|RC|Snapshot)-\d+\.\d+).*",
+                       "-(?:DevelPhaseExit|Alpha|Beta|RC|Snapshot)-\d+\.\d+).*",
                        html_text)
-        if (len(m) == 0):
+        if len(m) == 0:
             return
         L = sorted(m, key=lambda k: (phase[k.split('-')[2]],
                                      k.split('-')[3].split('.')[0],
                                      k.split('-')[3].split('.')[1]))
-        html_text = self.__get(release_url + L[-1] +
-                               "/compose/Server/x86_64/images/")
+        if y_stream[0] == "8":
+            image_rel_path = "/compose/BaseOS/x86_64/images/"
+        else:
+            image_rel_path = "/compose/Server/x86_64/images/"
+        html_text = self.__get(release_url + L[-1] + image_rel_path)
         m = re.findall(r"\s*(rhel-guest-image-.*.x86_64.qcow2)\s+.*",
                        html_text)
-        if (len(m) == 0):
+        if len(m) == 0:
             return
         else:
-            return [L[-1], m[0].encode('ascii', 'ignore')]
+            build_name = m[0].encode('ascii', 'ignore')
+            return [L[-1], build_name, release_url + L[-1] + image_rel_path + build_name]
 
     def get_latest_update_image(self, x):
         release_url = "http://download-node-02.eng.bos.redhat.com/rel-eng/"
@@ -108,8 +120,8 @@ class HTTP_helper(object):
                 n = re.findall(r"\s*(rhel-guest-image-.*.x86_64.qcow2)\s+.*",
                                html_text)
                 if len(n) > 0:
-                    print(max_revision)
-                    print(n[0].encode('ascii', 'ignore'))
+                    print max_revision
+                    print n[0].encode('ascii', 'ignore')
                     break
             break
 
@@ -130,66 +142,106 @@ class HTTP_helper(object):
             n = re.findall(r"\s*(rhel-guest-image-.*.x86_64.qcow2)\s+.*",
                            html_text)
             if len(n) > 0:
-                return [max_revision, n[0].encode('ascii', 'ignore')]
+                build_name = n[0].encode('ascii', 'ignore')
+                return [max_revision, build_name,
+                        update_url + y_stream + "/" + max_revision + "/compose/Server/x86_64/images/" + build_name]
         return
 
+    def get_nightly_image(self, y_stream):
+        base_url = "http://download-node-02.eng.bos.redhat.com/nightly/"
+        nightly_url = base_url + y_stream
 
-def get_active_rhel_releases(args):
-    pdc = PDCapi()
-    j_content = pdc.get_releases("rhel", "true")
-    if(len(j_content) < 1):
+        revision = self.__get(nightly_url +
+                              "/COMPOSE_ID").lstrip().rstrip()
+        html_text = self.__get(nightly_url +
+                               "/compose/BaseOS/x86_64/images/")
+        n = re.findall(r"\s*(rhel-guest-image-.*.x86_64.qcow2)\s+.*",
+                       html_text)
+        if len(n) > 0:
+            build_name = n[0].encode('ascii', 'ignore')
+            return [revision, build_name,
+                    nightly_url + "/compose/BaseOS/x86_64/images/" + build_name]
+
+
+def get_rhel_eng_releases():
+    pp = PPapi()
+    j_content = pp.get_releases("rhel", "3,4,5")
+    if len(j_content) < 1:
         logging.error("No releases was founded")
         sys.exit(1)
     else:
-        return [i['release_id'] for i in j_content['results']]
+        return [i['shortname'] for i in j_content]
 
 
-def get_builds(args):
-    helper = HTTP_helper()
+def get_rhel_update_releases():
+    pp = PPapi()
+    j_content = pp.get_releases("rhel", "6")
+    if len(j_content) < 1:
+        logging.error("No releases was founded")
+        sys.exit(1)
+    else:
+        return [i['shortname'] for i in j_content]
+
+
+def get_builds(args=None):
+    helper = HTTPHelper()
     if args is not None and args.version is not None:
-        print(helper.get_released_image(args.version))
-        print(helper.get_update_image('RHEL-' + args.version))
+        print helper.get_released_image(args.version)
+        print helper.get_update_image('RHEL-' + args.version)
         return
 
-    active_releases = get_active_rhel_releases(None)
-    print("=== Active RHEL releases ===")
-    for i in active_releases:
-        print(i)
-    exclude_udpates = ['rhel-5.11-updates', 'rhel-6-updates']
-    release_pattern = re.compile(r"rhel-\d+\.\d+$")
-    update_pattern = re.compile(r"rhel-\d+\.\d+-updates$")
-    filtered_releases = filter(release_pattern.match, active_releases)
-    filtered_updates = list(set(filter(update_pattern.match,
-                                       active_releases)) -
-                            set(exclude_udpates))
+    rhel_eng_releases = get_rhel_eng_releases()
+    rhel_update_releases = get_rhel_update_releases()
+    print "=== rhel-eng releases ==="
+    for i in rhel_eng_releases:
+        print i
+    print "=== update releases ==="
+    for i in rhel_update_releases:
+        print i
+    release_pattern = re.compile(r"rhel-\d+\-\d+$")
+    filtered_releases = filter(release_pattern.match, rhel_eng_releases)
+    filtered_updates = filter(release_pattern.match, rhel_update_releases)
     L = []
     for i in filtered_releases:
-        L1 = [i]
-        release_info = helper.get_released_image(i.split('-')[1])
+        j = re.sub(r'^(rhel-[0-9]+)-', r'\1.', i)
+        L1 = [j]
+        release_info = helper.get_released_image(j.split('-')[1])
         if release_info is not None:
             L1.extend(release_info)
         else:
             L1.extend([None, None])
         L.append(L1)
     for i in filtered_updates:
-        L1 = [i]
-        update_arg = '-'.join(i.split('-')[0:2]).upper()
+        j = re.sub(r'^(rhel-[0-9]+)-', r'\1.', i)
+        L1 = [j + "-updates"]
+        update_arg = j.upper()
         update_info = helper.get_update_image(update_arg)
         if update_info is not None:
             L1.extend(update_info)
         else:
             L1.extend([None, None])
         L.append(L1)
+
+    nightly_arg = "latest-RHEL-8"
+    nightly_info = helper.get_nightly_image(nightly_arg)
+    L1 = [nightly_arg]
+    print(nightly_info)
+    if nightly_info is not None:
+        L1.extend(nightly_info)
+    else:
+        L1.extend([None, None])
+    L.append(L1)
+
     return L
 
 
 def sync(args):
-    builds = get_builds(None)
-    print("=== Realtime data ===")
+    builds = get_builds()
+    print "=== Realtime data ==="
     for i in builds:
-        print(i)
+        print i
     try:
-        mariadb_connection = mariadb.connect(host='10.8.184.8', user='wshi',
+        mariadb_connection = mariadb.connect(host='10.8.242.130', user='wshi',
                                              password='redhatqas1',
                                              database='REDHAT')
     except mariadb.Error as err:
@@ -199,11 +251,11 @@ def sync(args):
     cursor.execute("SELECT release_name, release_version, build_name "
                    "FROM RHEL_GUEST_IMAGE WHERE 1 = %s", ("1"))
     db_builds = []
-    print("=== DB data ===")
+    print "=== DB data ==="
     for name, version, build in cursor:
         row = [name, version, build]
         db_builds.append(row)
-        print(row)
+        print row
     update_list = []
     insert_list = []
     for build in builds:
@@ -221,29 +273,45 @@ def sync(args):
             logging.debug("--- diff in realtime --- %s" % str(build[1]))
             tmp_db = [i[1] for i in db_builds if i[0] == build[0]][0]
             logging.debug("--- diff in DB --- %s" % str(tmp_db))
+        elif build[2] != [i[2] for i in db_builds if i[1] == build[1]][0]:
+            update_list.append(build)
+            logging.debug("Update existing build to DB: %s" % str(build))
+            logging.debug("--- diff in realtime --- %s" % str(build[1]))
+            tmp_db = [i[1] for i in db_builds if i[0] == build[0]][0]
+            logging.debug("--- diff in DB --- %s" % str(tmp_db))
         else:
             logging.debug("Already in DB: %s" % str(build))
-    print("=== Update list ===")
+    print "=== Update list ==="
     for i in update_list:
-        print(i)
+        print i
         args.content = "Update: " + str(i) + "\n"
         args.build = i[2].encode('ascii', 'ignore')
+        filename = download_file(i[3])
+        upload_to_rhos(filename)
+        if os.path.exists(filename):
+            os.remove(filename)
         send_mail(args)
-    print("=== Insert list ===")
+        os.system(jenkins_job_trigger % args.build)
+    print "=== Insert list ==="
     for i in insert_list:
-        print(i)
+        print i
         args.content = "Insert: " + str(i) + "\n"
         args.build = i[2].encode('ascii', 'ignore')
+        filename = download_file(i[3])
+        upload_to_rhos(filename)
+        if os.path.exists(filename):
+            os.remove(filename)
         send_mail(args)
+        os.system(jenkins_job_trigger % args.build)
     try:
         for i in update_list:
             cursor.execute("UPDATE RHEL_GUEST_IMAGE "
-                           "SET release_version=%s,build_name=%s "
-                           "WHERE release_name=%s", (i[1], i[2], i[0]))
+                           "SET release_version=%s,build_name=%s,build_url=%s,last_update=sysdate() "
+                           "WHERE release_name=%s", (i[1], i[2], i[3], i[0]))
         for i in insert_list:
             cursor.execute("INSERT INTO RHEL_GUEST_IMAGE "
-                           "(release_name,release_version,build_name) "
-                           "VALUES (%s,%s,%s)", (i[0], i[1], i[2]))
+                           "(release_name,release_version,build_name,build_url,last_update) "
+                           "VALUES (%s,%s,%s,%s,sysdate())", (i[0], i[1], i[2], i[3]))
         mariadb_connection.commit()
     except mariadb.Error as error:
         print("Error with DB operations: {}".format(error))
@@ -252,10 +320,59 @@ def sync(args):
     mariadb_connection.close()
 
 
+def download_file(url):
+    local_filename = '/tmp/' + url.split('/')[-1]
+    r = requests.get(url, stream=True)
+    with open(local_filename, 'wb') as f:
+        for chunk in r.iter_content(chunk_size=1024):
+            if chunk:  # filter out keep-alive new chunks
+                f.write(chunk)
+    return local_filename
+
+
+def upload_to_rhos(filename):
+    # Connnection attributes
+    auth_url = 'https://ci-rhos.centralci.eng.rdu2.redhat.com:13000/v2.0'
+    project_name = 'xen-jenkins'
+    username = 'xenqe'
+    password = ''
+
+    # Initialize cloud
+    conn = openstack.connect(auth_url=auth_url,
+                              project_name=project_name,
+                              username=username,
+                              password=password)
+
+    name = filename.split('/')[-1]
+    short_name = re.findall(r'^rhel-guest-image-\d+\.\d+', name)[0]
+    iter = conn.image.images(visibility="private")
+    for i in iter:
+        if i.name.startswith(short_name):
+            conn.image.delete_image(i.id)
+
+    # Build the image attributes
+    #image_attrs = {
+    #    'name': filename.split('/')[-1],
+    #    'filename': filename,
+    #    'disk_format': 'qcow2',
+    #    'container_format': 'bare',
+    #    'wait': True
+    #}
+    image_attrs = {
+        'name': name,
+        'data': open(filename, 'r'),
+        'disk_format': 'qcow2',
+        'container_format': 'bare',
+        'hw_rng_model': 'virtio'
+    }
+
+    conn.image.upload_image(**image_attrs)
+
+
 def send_mail(args):
     mail_server = "smtp.corp.redhat.com"
     mail_from = "wshi@redhat.com"
-    mail_to = "wshi@redhat.com"
+    mail_to = "wshi@redhat.com, wshi@redhat.com"
 
     if "content" not in vars(args):
         args.content = ""
@@ -271,12 +388,11 @@ def send_mail(args):
         server.connect(mail_server)
         server.sendmail(mail_from, mail_to, msg.as_string())
         server.close()
-    except Exception as e:
-        print(str(e))
+    except Exception, e:
+        print str(e)
 
 
-cmd_dict = {"releases": get_active_rhel_releases,
-            "builds": get_builds,
+cmd_dict = {"builds": get_builds,
             "sync": sync,
             "email": send_mail}
 
@@ -301,6 +417,7 @@ def main():
         logging.info("Running in normal mode")
 
     cmd_dict[args.command](args)
+
 
 if __name__ == "__main__":
     main()

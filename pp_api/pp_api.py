@@ -6,7 +6,18 @@ import logging
 class PPapi(RestAPI):
     def __init__(self):
         super(PPapi, self).__init__()
-        self.base_url = "https://pp.engineering.redhat.com/pp-admin/api/v1/"
+        self.base_url = "https://pp.engineering.redhat.com/pp/api/latest/"
+
+    def get_releases(self, shortname, phase):
+        """ Get releases for the given product and version"""
+        logging.info("Get releases for rhel in phase %s" % phase)
+        url = self.base_url + "releases/?product__shortname=%s&phase__in=%s" % (shortname, phase)
+        j_content = self.get(url)
+        if self.r.status_code != 200:
+            logging.error("GET releases error with code %s, text %s"
+                          % (self.r.status_code, self.r.text))
+            return self.r.status_code
+        return j_content
 
     def get_release_id_from_shortname(self, shortname):
         """ Get release_id from shortname """
@@ -65,6 +76,10 @@ def main():
     logging.basicConfig(level=logging.DEBUG,
                         format='%(asctime)s %(levelname)s %(message)s')
     pp = PPapi()
+    j_content = pp.get_releases("rhel","6")
+    for i in [i['shortname'] for i in j_content]:
+        print(i)
+    sys.exit(0)
     print(pp.get_release_schedule_tasks("rhel-6-8"))
     print(pp.get_release_schedule_changelog("rhel-6-8"))
 
