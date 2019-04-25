@@ -4,6 +4,11 @@ import logging
 import sys
 
 
+def releases(pp, args):
+    j_content = pp.get_releases("rhel","300,400,500")
+    for i in [i['shortname'] for i in j_content]:
+        print(i)
+
 def schedule(pp, args):
     j_content = pp.get_release_schedule_tasks(args.shortname)
     j_content_sorted = sorted(j_content,
@@ -40,7 +45,8 @@ def diff(pp, args):
     f.write(diff)
     f.close()
 
-cmd_dict = {"schedule": schedule,
+cmd_dict = {"releases": releases,
+            "schedule": schedule,
             "changelog": changelog,
             "latest_revision": latest_revision,
             "diff": diff}
@@ -51,7 +57,7 @@ def main():
     parser.add_argument('command', type=str, choices=list(cmd_dict.keys()),
                         help="subcommands")
     parser.add_argument('-n', '--shortname', type=str, dest='shortname',
-                        help="release short name, eg: rhel-7-2", required=True)
+                        help="release short name, eg: rhel-7-2")
     parser.add_argument('-r', '--revision', type=str, dest='revision',
                         help="release schedule revision number",
                         required=False)

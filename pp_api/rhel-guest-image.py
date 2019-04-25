@@ -17,7 +17,7 @@ import mysql.connector as mariadb
 import openstack
 from bs4 import BeautifulSoup
 from email.mime.text import MIMEText
-from pp_api import PPapi
+from .pp_api import PPapi
 
 jenkins_job_trigger = "java -jar ~/Downloads/jenkins-cli.jar -noCertificateCheck -s " \
                       "https://xen-jenkins.rhev-ci-vms.eng.rdu2.redhat.com/ build rhel-guest-image-runtest -p 'NVR=%s'"
@@ -59,12 +59,12 @@ class HTTPHelper(object):
                                      phase[k.split('-')[2]],
                                      k.split('-')[3].split('.')[0],
                                      k.split('-')[3].split('.')[1]))
-        print L[-1]
+        print(L[-1])
         html_text = self.__get(release_url + L[-1] +
                                "/compose/Server/x86_64/images/")
         m = re.findall(r"\s*(rhel-guest-image-.*.x86_64.qcow2)\s+.*",
                        html_text)
-        print m[0].encode('ascii', 'ignore')
+        print(m[0].encode('ascii', 'ignore'))
 
     def get_released_image(self, y_stream):
         release_url = "http://download-node-02.eng.bos.redhat.com/rel-eng/"
@@ -120,8 +120,8 @@ class HTTPHelper(object):
                 n = re.findall(r"\s*(rhel-guest-image-.*.x86_64.qcow2)\s+.*",
                                html_text)
                 if len(n) > 0:
-                    print max_revision
-                    print n[0].encode('ascii', 'ignore')
+                    print(max_revision)
+                    print(n[0].encode('ascii', 'ignore'))
                     break
             break
 
@@ -186,21 +186,21 @@ def get_rhel_update_releases():
 def get_builds(args=None):
     helper = HTTPHelper()
     if args is not None and args.version is not None:
-        print helper.get_released_image(args.version)
-        print helper.get_update_image('RHEL-' + args.version)
+        print(helper.get_released_image(args.version))
+        print(helper.get_update_image('RHEL-' + args.version))
         return
 
     rhel_eng_releases = get_rhel_eng_releases()
     rhel_update_releases = get_rhel_update_releases()
-    print "=== rhel-eng releases ==="
+    print("=== rhel-eng releases ===")
     for i in rhel_eng_releases:
-        print i
-    print "=== update releases ==="
+        print(i)
+    print("=== update releases ===")
     for i in rhel_update_releases:
-        print i
+        print(i)
     release_pattern = re.compile(r"rhel-\d+\-\d+$")
-    filtered_releases = filter(release_pattern.match, rhel_eng_releases)
-    filtered_updates = filter(release_pattern.match, rhel_update_releases)
+    filtered_releases = list(filter(release_pattern.match, rhel_eng_releases))
+    filtered_updates = list(filter(release_pattern.match, rhel_update_releases))
     L = []
     for i in filtered_releases:
         j = re.sub(r'^(rhel-[0-9]+)-', r'\1.', i)
@@ -237,25 +237,25 @@ def get_builds(args=None):
 
 def sync(args):
     builds = get_builds()
-    print "=== Realtime data ==="
+    print("=== Realtime data ===")
     for i in builds:
-        print i
+        print(i)
     try:
         mariadb_connection = mariadb.connect(host='10.8.242.130', user='wshi',
                                              password='redhatqas1',
                                              database='REDHAT')
     except mariadb.Error as err:
-        print("Error with DB connection: {}".format(err))
+        print(("Error with DB connection: {}".format(err)))
         sys.exit(1)
     cursor = mariadb_connection.cursor()
     cursor.execute("SELECT release_name, release_version, build_name "
                    "FROM RHEL_GUEST_IMAGE WHERE 1 = %s", ("1"))
     db_builds = []
-    print "=== DB data ==="
+    print("=== DB data ===")
     for name, version, build in cursor:
         row = [name, version, build]
         db_builds.append(row)
-        print row
+        print(row)
     update_list = []
     insert_list = []
     for build in builds:
@@ -281,9 +281,9 @@ def sync(args):
             logging.debug("--- diff in DB --- %s" % str(tmp_db))
         else:
             logging.debug("Already in DB: %s" % str(build))
-    print "=== Update list ==="
+    print("=== Update list ===")
     for i in update_list:
-        print i
+        print(i)
         args.content = "Update: " + str(i) + "\n"
         args.build = i[2].encode('ascii', 'ignore')
         filename = download_file(i[3])
@@ -292,9 +292,9 @@ def sync(args):
             os.remove(filename)
         send_mail(args)
         os.system(jenkins_job_trigger % args.build)
-    print "=== Insert list ==="
+    print("=== Insert list ===")
     for i in insert_list:
-        print i
+        print(i)
         args.content = "Insert: " + str(i) + "\n"
         args.build = i[2].encode('ascii', 'ignore')
         filename = download_file(i[3])
@@ -314,7 +314,7 @@ def sync(args):
                            "VALUES (%s,%s,%s,%s,sysdate())", (i[0], i[1], i[2], i[3]))
         mariadb_connection.commit()
     except mariadb.Error as error:
-        print("Error with DB operations: {}".format(error))
+        print(("Error with DB operations: {}".format(error)))
         mariadb_connection.rollback()
         sys.exit(1)
     mariadb_connection.close()
@@ -388,8 +388,8 @@ def send_mail(args):
         server.connect(mail_server)
         server.sendmail(mail_from, mail_to, msg.as_string())
         server.close()
-    except Exception, e:
-        print str(e)
+    except Exception as e:
+        print(str(e))
 
 
 cmd_dict = {"builds": get_builds,
